@@ -1,0 +1,73 @@
+# Character Todo
+
+![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D4?style=for-the-badge&logo=windows11&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-Desktop-47848F?style=for-the-badge&logo=electron&logoColor=white)
+![Status](https://img.shields.io/badge/status-active-5BBF8D?style=for-the-badge)
+![Private](https://img.shields.io/badge/repository-private-6E40C9?style=for-the-badge&logo=github)
+
+복어 캐릭터가 바탕화면 위에서 함께 움직이는 Windows 데스크톱 할일 위젯입니다.
+
+**개발자:** Gogo Lebi
+
+## 특징
+
+- Windows 바탕화면 위에 항상 떠 있는 캐릭터형 할일 위젯
+- 캐릭터 클릭으로 할일창 열기/닫기
+- 캐릭터를 마우스로 드래그해 바탕화면 어디든 이동
+- 할일 추가, 수정, 삭제, 완료 체크 지원
+- 완료 체크 시 효과음과 파티클 애니메이션 실행
+- 완료 직후 짧은 시간 동안 실행 취소 가능
+- 완료한 일 보기에서 취소선이 적용된 완료 목록 확인
+- 완료한 일도 목록에서 삭제 가능
+- 마감 날짜/시간 설정 가능
+- 마감이 지난 할일이 있으면 화난 복어로 바뀌고 덜덜 떨림
+- 할일이 있으면 배가 부푼 복어, 할일이 없으면 날씬한 복어로 자동 전환
+- 둥실둥실 움직임과 눈 깜빡임 애니메이션 적용
+
+## 설치 및 실행
+
+### 1. Node.js 설치
+
+Node.js가 설치되어 있어야 합니다.
+
+```powershell
+node --version
+npm --version
+```
+
+### 2. 저장소 받기
+
+```powershell
+git clone https://github.com/cybereun/character-todo.git
+cd character-todo
+```
+
+### 3. 앱 실행
+
+```powershell
+npm run start
+```
+
+`run-app.ps1`은 로컬 `node_modules`에 Electron이 있으면 그것을 사용합니다. 없으면 `C:\tmp\character-todo-runtime`에 Electron 런타임을 설치한 뒤 앱을 실행합니다.
+
+### 4. 문법 검사
+
+```powershell
+npm run lint:js
+```
+
+## 프로젝트 구조
+
+```text
+assets/          캐릭터 이미지 자산
+src/main.js      Electron 메인 프로세스
+src/preload.js   안전한 IPC 브리지
+src/index.html   앱 UI
+src/styles.css   위젯, 캐릭터, 할일창 스타일
+src/renderer.js  할일/완료/마감/드래그 UI 로직
+run-app.ps1      Windows 실행 스크립트
+```
+
+## 라이선스
+
+개인 프로젝트입니다.
