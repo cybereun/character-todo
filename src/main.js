@@ -92,7 +92,6 @@ function createWindow() {
     maximizable: false,
     minimizable: false,
     movable: false,
-    alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
     show: false,
@@ -104,7 +103,6 @@ function createWindow() {
     }
   });
 
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.webContents.on('context-menu', () => {
     Menu.buildFromTemplate([
       {
