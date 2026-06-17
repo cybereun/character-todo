@@ -1,4 +1,5 @@
-const { app, BrowserWindow, Menu, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, screen } = require('electron');
+const fs = require('fs');
 const path = require('path');
 
 const WINDOW_SIZE = {
@@ -7,15 +8,27 @@ const WINDOW_SIZE = {
 };
 
 let mainWindow;
+let tray;
 let expanded = false;
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 function enableAutoLaunch() {
   if (!app.isPackaged || process.platform !== 'win32') return;
 
   app.setLoginItemSettings({
+    name: 'Character Todo',
     openAtLogin: true,
-    path: process.execPath
+    openAsHidden: false,
+    path: process.execPath,
+    args: []
   });
+}
+
+function getAppIconPath() {
+  const iconPath = path.join(__dirname, '..', 'build', 'icon.ico');
+  if (fs.existsSync(iconPath)) return iconPath;
+  return path.join(__dirname, '..', 'assets', 'character-slim.png');
 }
 
 function clamp(value, min, max) {
@@ -76,6 +89,45 @@ function setExpandedState(nextExpanded) {
   }
 }
 
+function showMainWindow() {
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function hideMainWindow() {
+  if (mainWindow) mainWindow.hide();
+}
+
+function createTray() {
+  if (tray) return;
+
+  tray = new Tray(getAppIconPath());
+  tray.setToolTip('Character Todo');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: '열기',
+      click: showMainWindow
+    },
+    {
+      label: '숨기기',
+      click: hideMainWindow
+    },
+    { type: 'separator' },
+    {
+      label: '종료',
+      click: () => app.quit()
+    }
+  ]));
+  tray.on('click', showMainWindow);
+  tray.on('double-click', showMainWindow);
+}
+
 function createWindow() {
   expanded = false;
   const size = WINDOW_SIZE.expanded;
@@ -92,6 +144,7 @@ function createWindow() {
     maximizable: false,
     minimizable: false,
     movable: false,
+    alwaysOnTop: false,
     skipTaskbar: false,
     hasShadow: false,
     show: false,
@@ -102,6 +155,8 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+  mainWindow.setAlwaysOnTop(false);
+  mainWindow.setVisibleOnAllWorkspaces(false);
 
   mainWindow.webContents.on('context-menu', () => {
     Menu.buildFromTemplate([
@@ -111,20 +166,30 @@ function createWindow() {
       }
     ]).popup({ window: mainWindow });
   });
+  mainWindow.on('blur', () => {
+    mainWindow.setAlwaysOnTop(false);
+  });
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
 }
 
-app.whenReady().then(() => {
-  enableAutoLaunch();
-  createWindow();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', showMainWindow);
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  app.whenReady().then(() => {
+    enableAutoLaunch();
+    createWindow();
+    createTray();
+
+    app.on('activate', () => {
+      showMainWindow();
+    });
   });
-});
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

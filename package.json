@@ -1,6 +1,6 @@
 {
   "name": "character-todo",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A floating desktop todo widget with a pufferfish character.",
   "main": "src/main.js",
   "author": "Gogo Lebi",
@@ -22,6 +22,7 @@
     "files": [
       "src/**/*",
       "assets/**/*",
+      "build/icon.ico",
       "package.json",
       "README.md"
     ],
