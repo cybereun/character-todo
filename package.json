@@ -1,6 +1,6 @@
 {
   "name": "character-todo",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A floating desktop todo widget with a pufferfish character.",
   "main": "src/main.js",
   "author": "Gogo Lebi",
@@ -27,6 +27,7 @@
     ],
     "win": {
       "publisherName": "Gogo Lebi",
+      "requestedExecutionLevel": "asInvoker",
       "target": [
         {
           "target": "nsis",
@@ -40,8 +41,10 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
+      "allowElevation": false,
+      "packElevateHelper": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "Character Todo",
       "license": "build/license.txt",

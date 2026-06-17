@@ -92,7 +92,7 @@ function createWindow() {
     maximizable: false,
     minimizable: false,
     movable: false,
-    skipTaskbar: true,
+    skipTaskbar: false,
     hasShadow: false,
     show: false,
     backgroundColor: '#00000000',

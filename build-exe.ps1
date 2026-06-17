@@ -28,8 +28,18 @@ foreach ($item in $items) {
 
 & $builder --projectDir $stagingRoot --win nsis --x64
 
-New-Item -ItemType Directory -Force -Path (Join-Path $root "dist") | Out-Null
+$distRoot = Join-Path $root "dist"
+if (Test-Path $distRoot) {
+  Get-ChildItem -LiteralPath $distRoot -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $stagingRoot "dist") | ForEach-Object {
-  Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $root "dist") -Recurse -Force
+  Copy-Item -LiteralPath $_.FullName -Destination $distRoot -Recurse -Force
+}
+
+$staleElevate = Join-Path $distRoot "win-unpacked\resources\elevate.exe"
+if (Test-Path $staleElevate) {
+  Remove-Item -LiteralPath $staleElevate -Force -ErrorAction SilentlyContinue
 }
 exit $LASTEXITCODE
