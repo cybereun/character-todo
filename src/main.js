@@ -110,12 +110,31 @@ function getAppIconPath() {
 }
 
 function clamp(value, min, max) {
+  if (max < min) return min;
   return Math.min(Math.max(value, min), max);
 }
 
+function getVirtualWorkArea() {
+  const displays = screen.getAllDisplays();
+  const areas = displays.length > 0
+    ? displays.map((display) => display.workArea)
+    : [screen.getPrimaryDisplay().workArea];
+
+  const left = Math.min(...areas.map((area) => area.x));
+  const top = Math.min(...areas.map((area) => area.y));
+  const right = Math.max(...areas.map((area) => area.x + area.width));
+  const bottom = Math.max(...areas.map((area) => area.y + area.height));
+
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top
+  };
+}
+
 function clampBounds(bounds) {
-  const display = screen.getDisplayMatching(bounds);
-  const area = display.workArea;
+  const area = getVirtualWorkArea();
   return {
     x: clamp(bounds.x, area.x, area.x + area.width - bounds.width),
     y: clamp(bounds.y, area.y, area.y + area.height - bounds.height),
@@ -138,8 +157,7 @@ function getVisibleRect(bounds) {
 
 function clampWindowByVisibleRect(bounds) {
   const visible = getVisibleRect(bounds);
-  const display = screen.getDisplayMatching(visible);
-  const area = display.workArea;
+  const area = getVirtualWorkArea();
   const clampedVisible = {
     ...visible,
     x: clamp(visible.x, area.x, area.x + area.width - visible.width),
