@@ -25,6 +25,7 @@ let todos = [];
 let expanded = false;
 let showingCompleted = false;
 let editingId = null;
+let subtaskEntryTodoId = null;
 let dragState = null;
 let audioContext = null;
 let undoTodoId = null;
@@ -44,13 +45,25 @@ function normalizeDueAt(value) {
   return Number.isFinite(timestamp) && timestamp >= minimumValidDueAt ? timestamp : null;
 }
 
+function normalizeSubtask(subtask) {
+  return {
+    id: subtask.id || createId(),
+    text: typeof subtask.text === 'string' ? subtask.text : '',
+    status: subtask.status === 'completed' ? 'completed' : 'active',
+    completedAt: subtask.completedAt || null
+  };
+}
+
 function normalizeTodo(todo) {
   return {
     id: todo.id || createId(),
     text: typeof todo.text === 'string' ? todo.text : '',
     status: todo.status === 'completed' ? 'completed' : 'active',
     dueAt: normalizeDueAt(todo.dueAt),
-    completedAt: todo.completedAt || null
+    completedAt: todo.completedAt || null,
+    subtasks: Array.isArray(todo.subtasks)
+      ? todo.subtasks.map(normalizeSubtask).filter((subtask) => subtask.text)
+      : []
   };
 }
 
@@ -173,6 +186,7 @@ function renderTodos() {
   const overdueCount = getActiveTodos().filter(isOverdue).length;
   widget.dataset.hasTodos = String(activeCount > 0);
   widget.dataset.hasOverdue = String(overdueCount > 0);
+  if (showingCompleted) subtaskEntryTodoId = null;
   viewToggle.textContent = showingCompleted ? '할일 목록 보기' : '완료한 일 보기';
   viewToggle.setAttribute('aria-pressed', String(showingCompleted));
   todoCount.textContent = showingCompleted
@@ -187,6 +201,7 @@ function renderTodos() {
       const pending = pendingCompletions.has(todo.id);
       const overdue = isOverdue(todo);
       const dueLabel = formatDueLabel(todo);
+      const subtaskList = renderSubtasks(todo);
 
       if (!showingCompleted && todo.id === editingId) {
         return `
@@ -206,6 +221,7 @@ function renderTodos() {
           <li class="todo-item is-completed" data-id="${todo.id}">
             <span class="todo-text" title="${text}">${text}</span>
             <span class="completed-time">${formatCompletedTime(todo.completedAt)}</span>
+            <button class="icon-button restore-button" type="button" data-action="restore" title="되돌리기" aria-label="되돌리기">↩</button>
             <button class="icon-button delete-button" type="button" data-action="delete" title="삭제" aria-label="삭제">×</button>
           </li>
         `;
@@ -213,11 +229,13 @@ function renderTodos() {
 
       return `
         <li class="todo-item${pending ? ' is-done-pending' : ''}${overdue ? ' is-overdue' : ''}" data-id="${todo.id}">
-          <button class="icon-button done-button" type="button" data-action="complete" title="완료" aria-label="완료">✓</button>
+          <button class="icon-button done-button" type="button" data-action="complete" title="완료" aria-label="완료">${pending ? '✓' : ''}</button>
           <span class="todo-main">
             <span class="todo-text" title="${text}">${text}</span>
             ${dueLabel ? `<span class="due-label">${dueLabel}</span>` : ''}
+            ${subtaskList}
           </span>
+          <button class="icon-button subtask-button" type="button" data-action="add-subtask" title="서브할일 추가" aria-label="서브할일 추가">+</button>
           <button class="icon-button" type="button" data-action="edit" title="수정" aria-label="수정">✎</button>
           <button class="icon-button delete-button" type="button" data-action="delete" title="삭제" aria-label="삭제">×</button>
         </li>
@@ -230,6 +248,41 @@ function renderTodos() {
     editInput.focus();
     editInput.select();
   }
+
+  const subtaskInput = todoList.querySelector('.subtask-input');
+  if (subtaskInput) {
+    subtaskInput.focus();
+  }
+}
+
+function renderSubtasks(todo) {
+  const subtasks = Array.isArray(todo.subtasks) ? todo.subtasks : [];
+  const rows = subtasks
+    .map((subtask) => {
+      const text = escapeHtml(subtask.text);
+      const completed = subtask.status === 'completed';
+
+      return `
+        <li class="subtask-row${completed ? ' is-completed' : ''}" data-subtask-id="${subtask.id}">
+          <button class="subtask-check" type="button" data-action="toggle-subtask" title="서브할일 완료" aria-label="서브할일 완료">${completed ? '✓' : ''}</button>
+          <span class="subtask-text" title="${text}">${text}</span>
+          <button class="subtask-delete" type="button" data-action="delete-subtask" title="서브할일 삭제" aria-label="서브할일 삭제">×</button>
+        </li>
+      `;
+    })
+    .join('');
+
+  const entry = subtaskEntryTodoId === todo.id
+    ? `
+      <li class="subtask-entry-row">
+        <input class="subtask-input" type="text" maxlength="80" placeholder="서브할일 입력" aria-label="서브할일 입력" />
+        <button class="subtask-cancel" type="button" data-action="cancel-subtask-entry" title="취소" aria-label="취소">취소</button>
+      </li>
+    `
+    : '';
+
+  if (!rows && !entry) return '';
+  return `<ul class="subtask-list">${rows}${entry}</ul>`;
 }
 
 function formatDueLabel(todo) {
@@ -263,7 +316,8 @@ function addTodo(text) {
     text: trimmed,
     status: 'active',
     dueAt,
-    completedAt: null
+    completedAt: null,
+    subtasks: []
   });
   saveTodos();
   renderTodos();
@@ -300,9 +354,79 @@ function updateTodo(id, text, dueValue) {
   renderTodos();
 }
 
+function addSubtask(todoId, text) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+
+  todos = todos.map((todo) =>
+    todo.id === todoId
+      ? {
+          ...todo,
+          subtasks: [
+            ...(Array.isArray(todo.subtasks) ? todo.subtasks : []),
+            {
+              id: createId(),
+              text: trimmed,
+              status: 'active',
+              completedAt: null
+            }
+          ]
+        }
+      : todo
+  );
+  saveTodos();
+  renderTodos();
+}
+
+function toggleSubtask(todoId, subtaskId) {
+  todos = todos.map((todo) => {
+    if (todo.id !== todoId) return todo;
+
+    return {
+      ...todo,
+      subtasks: todo.subtasks.map((subtask) =>
+        subtask.id === subtaskId
+          ? {
+              ...subtask,
+              status: subtask.status === 'completed' ? 'active' : 'completed',
+              completedAt: subtask.status === 'completed' ? null : Date.now()
+            }
+          : subtask
+      )
+    };
+  });
+  saveTodos();
+  renderTodos();
+}
+
+function deleteSubtask(todoId, subtaskId) {
+  todos = todos.map((todo) =>
+    todo.id === todoId
+      ? {
+          ...todo,
+          subtasks: todo.subtasks.filter((subtask) => subtask.id !== subtaskId)
+        }
+      : todo
+  );
+  saveTodos();
+  renderTodos();
+}
+
+function startSubtaskEntry(id) {
+  editingId = null;
+  subtaskEntryTodoId = id;
+  renderTodos();
+}
+
+function stopSubtaskEntry() {
+  subtaskEntryTodoId = null;
+  renderTodos();
+}
+
 function deleteTodo(id) {
   clearPendingCompletion(id);
   todos = todos.filter((todo) => todo.id !== id);
+  if (subtaskEntryTodoId === id) subtaskEntryTodoId = null;
   if (undoTodoId === id) hideUndoToast();
   saveTodos();
   renderTodos();
@@ -311,6 +435,7 @@ function deleteTodo(id) {
 function completeTodo(id) {
   const todo = todos.find((item) => item.id === id);
   if (!todo || todo.status === 'completed' || pendingCompletions.has(id)) return;
+  if (subtaskEntryTodoId === id) subtaskEntryTodoId = null;
 
   todos = todos.map((item) =>
     item.id === id
@@ -363,6 +488,14 @@ function undoCompletion(id) {
   if (!todo || todo.status !== 'completed') return;
 
   clearPendingCompletion(id);
+  restoreTodo(id);
+  hideUndoToast();
+}
+
+function restoreTodo(id) {
+  const todo = todos.find((item) => item.id === id);
+  if (!todo || todo.status !== 'completed') return;
+
   todos = todos.map((item) =>
     item.id === id
       ? { ...item, status: 'active', completedAt: null }
@@ -370,7 +503,6 @@ function undoCompletion(id) {
   );
   showingCompleted = false;
   saveTodos();
-  hideUndoToast();
   renderTodos();
 }
 
@@ -482,6 +614,7 @@ function formatDateTimeLocal(timestamp) {
 viewToggle.addEventListener('click', () => {
   showingCompleted = !showingCompleted;
   editingId = null;
+  subtaskEntryTodoId = null;
   renderTodos();
 });
 
@@ -499,9 +632,21 @@ todoList.addEventListener('click', (event) => {
 
   if (action === 'complete') completeTodo(id);
   if (action === 'delete') deleteTodo(id);
+  if (action === 'restore') restoreTodo(id);
   if (action === 'edit') {
+    subtaskEntryTodoId = null;
     editingId = id;
     renderTodos();
+  }
+  if (action === 'add-subtask') startSubtaskEntry(id);
+  if (action === 'cancel-subtask-entry') stopSubtaskEntry();
+  if (action === 'toggle-subtask') {
+    const subtaskId = button.closest('[data-subtask-id]')?.dataset.subtaskId;
+    if (subtaskId) toggleSubtask(id, subtaskId);
+  }
+  if (action === 'delete-subtask') {
+    const subtaskId = button.closest('[data-subtask-id]')?.dataset.subtaskId;
+    if (subtaskId) deleteSubtask(id, subtaskId);
   }
   if (action === 'save') {
     updateTodo(
@@ -517,6 +662,20 @@ todoList.addEventListener('click', (event) => {
 });
 
 todoList.addEventListener('keydown', (event) => {
+  if (event.target.matches('.subtask-input')) {
+    const id = getTodoIdFromEvent(event);
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      addSubtask(id, event.target.value);
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      stopSubtaskEntry();
+    }
+    return;
+  }
+
   if (!event.target.matches('.edit-input, .edit-due-input')) return;
 
   const id = getTodoIdFromEvent(event);
@@ -576,5 +735,5 @@ characterButton.addEventListener('pointercancel', () => {
 
 void initTodos();
 window.setInterval(() => {
-  if (!editingId) renderTodos();
+  if (!editingId && !subtaskEntryTodoId) renderTodos();
 }, 15000);
