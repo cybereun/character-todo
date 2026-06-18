@@ -18,8 +18,10 @@ const panelAnimationMs = 420;
 const doneHoldMs = 500;
 const removeAnimationMs = 620;
 const undoWindowMs = 4500;
+const localStorageMigrationKey = `${storageKey}:migrated-to-file`;
+const minimumValidDueAt = new Date('2020-01-01T00:00:00').getTime();
 
-let todos = loadTodos();
+let todos = [];
 let expanded = false;
 let showingCompleted = false;
 let editingId = null;
@@ -30,17 +32,29 @@ let undoToastTimer = null;
 
 const pendingCompletions = new Map();
 
+function normalizeDueAt(value) {
+  if (value === null || value === undefined || value === '') return null;
+
+  if (typeof value === 'number' || /^[0-9]+$/.test(String(value))) {
+    const timestamp = Number(value);
+    return Number.isFinite(timestamp) && timestamp >= minimumValidDueAt ? timestamp : null;
+  }
+
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) && timestamp >= minimumValidDueAt ? timestamp : null;
+}
+
 function normalizeTodo(todo) {
   return {
     id: todo.id || createId(),
     text: typeof todo.text === 'string' ? todo.text : '',
     status: todo.status === 'completed' ? 'completed' : 'active',
-    dueAt: Number.isFinite(Number(todo.dueAt)) ? Number(todo.dueAt) : null,
+    dueAt: normalizeDueAt(todo.dueAt),
     completedAt: todo.completedAt || null
   };
 }
 
-function loadTodos() {
+function loadLocalStorageTodos() {
   try {
     const parsed = JSON.parse(localStorage.getItem(storageKey) || '[]');
     return Array.isArray(parsed) ? parsed.map(normalizeTodo).filter((todo) => todo.text) : [];
@@ -49,13 +63,51 @@ function loadTodos() {
   }
 }
 
+async function loadTodos() {
+  const localTodos = loadLocalStorageTodos();
+
+  if (!window.characterTodo?.loadTodos) return localTodos;
+
+  try {
+    const fileTodos = await window.characterTodo.loadTodos();
+    const normalizedFileTodos = Array.isArray(fileTodos)
+      ? fileTodos.map(normalizeTodo).filter((todo) => todo.text)
+      : [];
+
+    if (normalizedFileTodos.length > 0) return normalizedFileTodos;
+
+    const alreadyMigrated = localStorage.getItem(localStorageMigrationKey) === 'true';
+    if (localTodos.length > 0 && !alreadyMigrated) {
+      await window.characterTodo.saveTodos(localTodos);
+      localStorage.setItem(localStorageMigrationKey, 'true');
+      return localTodos;
+    }
+
+    return normalizedFileTodos;
+  } catch {
+    return localTodos;
+  }
+}
+
 function saveTodos() {
+  const normalizedTodos = todos.map(normalizeTodo).filter((todo) => todo.text);
+  todos = normalizedTodos;
   localStorage.setItem(storageKey, JSON.stringify(todos));
+  localStorage.setItem(localStorageMigrationKey, 'true');
+  if (window.characterTodo?.saveTodos) {
+    void window.characterTodo.saveTodos(todos);
+  }
 }
 
 function createId() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function initTodos() {
+  todos = await loadTodos();
+  renderTodos();
+  updateDueButton();
 }
 
 function escapeHtml(value) {
@@ -139,7 +191,10 @@ function renderTodos() {
       if (!showingCompleted && todo.id === editingId) {
         return `
           <li class="todo-item is-editing" data-id="${todo.id}">
-            <input class="edit-input" value="${text}" maxlength="80" aria-label="할일 수정" />
+            <span class="edit-fields">
+              <input class="edit-input" value="${text}" maxlength="80" aria-label="할일 수정" />
+              <input class="edit-due-input" type="datetime-local" value="${formatDateTimeLocal(todo.dueAt)}" aria-label="마감 날짜와 시간 수정" />
+            </span>
             <button class="icon-button save-button" type="button" data-action="save" title="저장" aria-label="저장">✓</button>
             <button class="icon-button" type="button" data-action="cancel" title="취소" aria-label="취소">↩</button>
           </li>
@@ -220,15 +275,26 @@ function addTodo(text) {
 function parseDueInput(value) {
   if (!value) return null;
 
-  const timestamp = new Date(value).getTime();
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  const timestamp = match
+    ? new Date(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3]),
+        Number(match[4]),
+        Number(match[5])
+      ).getTime()
+    : new Date(value).getTime();
+
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-function updateTodo(id, text) {
+function updateTodo(id, text, dueValue) {
   const trimmed = text.trim();
   if (!trimmed) return;
+  const dueAt = parseDueInput(dueValue);
 
-  todos = todos.map((todo) => (todo.id === id ? { ...todo, text: trimmed } : todo));
+  todos = todos.map((todo) => (todo.id === id ? { ...todo, text: trimmed, dueAt } : todo));
   editingId = null;
   saveTodos();
   renderTodos();
@@ -401,6 +467,18 @@ function formatInputDue(value) {
   }).format(new Date(timestamp));
 }
 
+function formatDateTimeLocal(timestamp) {
+  if (!Number.isFinite(timestamp)) return '';
+
+  const date = new Date(timestamp);
+  const pad = (value) => String(value).padStart(2, '0');
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate())
+  ].join('-') + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 viewToggle.addEventListener('click', () => {
   showingCompleted = !showingCompleted;
   editingId = null;
@@ -425,7 +503,13 @@ todoList.addEventListener('click', (event) => {
     editingId = id;
     renderTodos();
   }
-  if (action === 'save') updateTodo(id, item.querySelector('.edit-input').value);
+  if (action === 'save') {
+    updateTodo(
+      id,
+      item.querySelector('.edit-input').value,
+      item.querySelector('.edit-due-input').value
+    );
+  }
   if (action === 'cancel') {
     editingId = null;
     renderTodos();
@@ -433,10 +517,17 @@ todoList.addEventListener('click', (event) => {
 });
 
 todoList.addEventListener('keydown', (event) => {
-  if (!event.target.matches('.edit-input')) return;
+  if (!event.target.matches('.edit-input, .edit-due-input')) return;
 
   const id = getTodoIdFromEvent(event);
-  if (event.key === 'Enter') updateTodo(id, event.target.value);
+  const item = event.target.closest('.todo-item');
+  if (event.key === 'Enter') {
+    updateTodo(
+      id,
+      item.querySelector('.edit-input').value,
+      item.querySelector('.edit-due-input').value
+    );
+  }
   if (event.key === 'Escape') {
     editingId = null;
     renderTodos();
@@ -483,8 +574,7 @@ characterButton.addEventListener('pointercancel', () => {
   dragState = null;
 });
 
-renderTodos();
-updateDueButton();
+void initTodos();
 window.setInterval(() => {
   if (!editingId) renderTodos();
 }, 15000);

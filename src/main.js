@@ -2,6 +2,8 @@ const { app, BrowserWindow, Menu, Tray, ipcMain, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
+app.disableHardwareAcceleration();
+
 const WINDOW_SIZE = {
   collapsed: { width: 290, height: 230 },
   expanded: { width: 410, height: 575 }
@@ -11,7 +13,83 @@ let mainWindow;
 let tray;
 let expanded = false;
 
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
+function getErrorLogPath() {
+  try {
+    return path.join(app.getPath('userData'), 'error.log');
+  } catch {
+    return path.join(process.env.TEMP || process.cwd(), 'character-todo-error.log');
+  }
+}
+
+function logError(message, error) {
+  const detail = error?.stack || error?.message || String(error || '');
+
+  try {
+    const logFilePath = getErrorLogPath();
+    fs.mkdirSync(path.dirname(logFilePath), { recursive: true });
+    fs.appendFileSync(
+      logFilePath,
+      `[${new Date().toISOString()}] ${message}${detail ? `\n${detail}` : ''}\n`,
+      'utf8'
+    );
+  } catch (logWriteError) {
+    console.error(message, error, logWriteError);
+  }
+}
+
+function requestSingleInstanceLockSafely() {
+  try {
+    return app.requestSingleInstanceLock();
+  } catch (error) {
+    logError('Failed to acquire single instance lock.', error);
+    return false;
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  logError('Uncaught main process exception.', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logError('Unhandled main process rejection.', reason);
+});
+
+app.on('child-process-gone', (_event, details) => {
+  if (details?.type === 'GPU') {
+    logError(`GPU process exited: ${details.reason || 'unknown reason'}.`);
+  }
+});
+
+const gotSingleInstanceLock = requestSingleInstanceLockSafely();
+
+function getTodoStoragePath() {
+  return path.join(app.getPath('userData'), 'todos.json');
+}
+
+async function loadTodoStorage() {
+  try {
+    const raw = await fs.promises.readFile(getTodoStoragePath(), 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.error('Failed to load todos:', error);
+    return [];
+  }
+}
+
+async function saveTodoStorage(_event, nextTodos) {
+  if (!Array.isArray(nextTodos)) return { ok: false };
+
+  try {
+    const filePath = getTodoStoragePath();
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.promises.writeFile(filePath, JSON.stringify(nextTodos, null, 2), 'utf8');
+    return { ok: true };
+  } catch (error) {
+    console.error('Failed to save todos:', error);
+    return { ok: false };
+  }
+}
 
 function enableAutoLaunch() {
   if (!app.isPackaged || process.platform !== 'win32') return;
@@ -180,15 +258,20 @@ if (!gotSingleInstanceLock) {
 } else {
   app.on('second-instance', showMainWindow);
 
-  app.whenReady().then(() => {
-    enableAutoLaunch();
-    createWindow();
-    createTray();
+  app.whenReady()
+    .then(() => {
+      enableAutoLaunch();
+      createWindow();
+      createTray();
 
-    app.on('activate', () => {
-      showMainWindow();
+      app.on('activate', () => {
+        showMainWindow();
+      });
+    })
+    .catch((error) => {
+      logError('Failed to start app.', error);
+      app.quit();
     });
-  });
 }
 
 app.on('window-all-closed', () => {
@@ -212,3 +295,6 @@ ipcMain.handle('widget:move-by', (_event, delta) => {
     false
   );
 });
+
+ipcMain.handle('todos:load', loadTodoStorage);
+ipcMain.handle('todos:save', saveTodoStorage);

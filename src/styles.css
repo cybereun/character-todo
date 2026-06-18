@@ -113,7 +113,8 @@ input {
 }
 
 .todo-input,
-.edit-input {
+.edit-input,
+.edit-due-input {
   min-width: 0;
   height: 38px;
   border: 1px solid rgba(78, 108, 124, 0.25);
@@ -139,7 +140,8 @@ input {
 }
 
 .todo-input:focus,
-.edit-input:focus {
+.edit-input:focus,
+.edit-due-input:focus {
   border-color: rgba(79, 143, 178, 0.75);
   box-shadow: 0 0 0 3px rgba(79, 143, 178, 0.16);
 }
@@ -246,6 +248,7 @@ input {
 
 .todo-item.is-editing {
   grid-template-columns: 1fr auto auto;
+  align-items: start;
 }
 
 .todo-item.is-completing {
@@ -392,6 +395,19 @@ input {
   width: 100%;
   padding: 0 10px;
   font-size: 14px;
+}
+
+.edit-fields {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.edit-due-input {
+  width: 100%;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .character-button {
